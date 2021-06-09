@@ -1,45 +1,40 @@
 (function($) {
 
-	// Set Lister filters value
-	function setFilters(event, a) {
-		if(a === 'lpal') return; // Prevent recursion
-		var $filters = $('#ProcessListerFilters');
-		var limit = $('#lpal-action-limit').val();
-		var selector = $filters.val();
-		var selector_pieces = selector.split(', ');
-		// Remove any existing actions_limit
-		selector_pieces.forEach(function(item, index) {
-			if(item.startsWith('actions_limit=')) {
-				selector_pieces.splice(index, 1);
-			}
-		});
-		// Add a new actions_limit if set
-		if(limit) selector_pieces.push('actions_limit=' + limit);
-		// Set the filters value and trigger change with extra parameter to prevent recursion
-		selector = selector_pieces.join(', ');
-		$filters.val(selector).trigger('change', ['lpal']);
-	}
-
 	$(document).ready(function() {
 
-		var $action_limit = $('#lpal-action-limit');
-		var $filters = $('#ProcessListerFilters');
+		var $action_limit_input = $('#lpal-action-limit');
 
-		// Remove change event handler from filter input so it's possible to manually set it
-		$filters.addClass('no-auto-change');
-		$(document).off('change', '.InputfieldSelector :input:not(.select-field):not(.input-value-autocomplete)').on('change', '.InputfieldSelector :input:not(.select-field):not(.input-value-autocomplete):not(.no-auto-change)', function() {
-			InputfieldSelector.changeAny($(this));
+		function getActionLimitIds() {
+			var action_limit = $action_limit_input.val();
+			// Get IDs of pages within the action limit
+			$.getJSON('./action-limit-ids/?action_limit=' + action_limit, function(data) {
+				var count = data.length;
+				// Set selected count
+				var $open_count = $('#lister_open_cnt');
+				if(count) {
+					$open_count.find('span').text(count);
+					$open_count.show();
+				} else {
+					$open_count.hide();
+				}
+				// Remove existing highlights
+				$('.lpal-selected').removeClass('lpal-selected');
+				$.each(data, function(i, item) {
+					// Highlight rows
+					$('#ProcessListerTable').find('tr[data-pid="' + item + '"]').addClass('lpal-selected');
+				});
+			});
+		}
+
+		// Get item IDs when action limit changes
+		$action_limit_input.change(getActionLimitIds);
+
+		// Get item IDs when an AJAX event is completed
+		$(document).ajaxComplete(function(event, xhr, settings) {
+			// Return early if the AJAX event was to get action limit IDs
+			if(settings.url.startsWith('./action-limit-ids/')) return;
+			getActionLimitIds();
 		});
-
-		// Show action limit input on label click
-		$('#lpal-action-limit-label.collapsed').click(function() {
-			$(this).text('Action limit:').removeClass('collapsed');
-			$action_limit.show();
-		});
-
-		// Call setFilters() when action limit changes or selector changes
-		$action_limit.change(setFilters);
-		$filters.change(setFilters);
 
 	});
 

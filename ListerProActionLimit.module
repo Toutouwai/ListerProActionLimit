@@ -9,7 +9,7 @@ class ListerProActionLimit extends WireData implements Module {
 		return array(
 			'title' => 'Lister Pro Action Limit',
 			'summary' => 'Allows a numerical limit to be set for how many pages within Lister Pro results will have an action applied to them.',
-			'version' => '0.1.1',
+			'version' => '0.1.2',
 			'author' => 'Robin Sallis',
 			'href' => 'https://github.com/Toutouwai/ListerProActionLimit',
 			'icon' => 'compress',
@@ -22,7 +22,12 @@ class ListerProActionLimit extends WireData implements Module {
 	 * Init
 	 */
 	public function init() {
+		// For Lister Pro
+		$this->addHookMethod('ProcessPageListerPro::executeActionLimitIds', $this, 'executeActionLimitIds');
 		$this->addHookBefore('ProcessPageListerPro::executeActions', $this, 'beforeExecuteActions');
+		// For Lister Selector
+		$this->addHookMethod('ProcessListerSelector::executeActionLimitIds', $this, 'executeActionLimitIds');
+		$this->addHookBefore('ProcessListerSelector::executeActions', $this, 'beforeExecuteActions');
 	}
 
 	/**
@@ -30,110 +35,109 @@ class ListerProActionLimit extends WireData implements Module {
 	 */
 	public function ready() {
 		$this->addHookBefore('ProcessPageListerPro::execute', $this, 'beforeListerProExecute');
-		$this->addHookAfter('InputfieldSelector::render', $this, 'afterInputfieldSelectorRender');
-		$this->addHookAfter('ProcessPageLister::getSelector', $this, 'afterGetSelector');
-		$this->addHookAfter('ProcessController::execute', $this, 'addLateAssets');
+		$this->addHookAfter('ListerProActions::buildActionsForm', $this, 'afterBuildActionsForm');
 	}
 
 	/**
-	 * Before ListerProActions::executeActions
+	 * Get the page IDs that are within the action limit
+	 *
+	 * @param ProcessPageListerPro $lister
+	 * @param int $action_limit
+	 * @return array
+	 */
+	protected function getActionLimitIds(ProcessPageListerPro $lister, $action_limit) {
+		if(!$action_limit) return [];
+		$selector_str = $lister->getSelector();
+		// Parse selector string into Selectors object
+		$selectors = new Selectors($selector_str);
+		// Set limit to $action_limit
+		$s_limit = $selectors->get('field=limit');
+		if($s_limit) {
+			$s_limit->value = $action_limit;
+		} else {
+			$s_limit = new SelectorEqual('limit', $action_limit);
+			$selectors->add($s_limit);
+		}
+		$s_start = new SelectorEqual('start', 0);
+		$selectors->add($s_start);
+		// Return the array of page IDs
+		return $this->wire()->pages->findIDs($selectors);
+	}
+
+	/**
+	 * ProcessPageListerPro|ProcessListerSelector::executeActionLimitIds
+	 * Send page IDs in AJAX response
+	 *
+	 * @param HookEvent $event
+	 */
+	protected function executeActionLimitIds(HookEvent $event) {
+		if($this->wire()->config->ajax) {
+			/** @var ProcessPageListerPro $lister */
+			if($event->object == 'ProcessListerSelector') {
+				$lister = $event->object->lister;
+			} else {
+				$lister = $event->object;
+			}
+			$action_limit = $this->wire()->input->get->int('action_limit');
+			$ids = $this->getActionLimitIds($lister, $action_limit);
+			$event->return = json_encode($ids);
+		} else {
+			$event->return = 'This method can only be accessed via AJAX.';
+		}
+	}
+
+	/**
+	 * Before ProcessPageListerPro|ProcessListerSelector::executeActions
+	 * Set action_items in POST
 	 *
 	 * @param HookEvent $event
 	 */
 	protected function beforeExecuteActions(HookEvent $event) {
 		/** @var ProcessPageListerPro $lister */
-		$lister = $event->object;
-		$selector_str = $lister->getSelector();
-		$selectors = new Selectors($selector_str);
-		// Get total will only be present if it was set by this module
-		$s_get_total = $selectors->get("field=get_total");
-		if(!$s_get_total || $s_get_total->value != 0) return;
-		// Get the page IDs up to the limit
-		$ids = $this->wire()->pages->findIDs($selector_str);
+		if($event->object == 'ProcessListerSelector') {
+			$lister = $event->object->lister;
+		} else {
+			$lister = $event->object;
+		}
+		$input = $this->wire()->input;
+		$action_limit = $input->post->int('action_limit');
+		$ids = $this->getActionLimitIds($lister, $action_limit);
 		// Set the IDs in CSV format to actions_items in POST (as if they had been individually selected)
-		if($ids) $this->wire()->input->post->actions_items = implode(',', $ids);
+		if($ids) $input->post->actions_items = implode(',', $ids);
 	}
 
 	/**
 	 * Before ProcessPageListerPro::execute
+	 * Add CSS and JS
 	 *
 	 * @param HookEvent $event
 	 */
 	protected function beforeListerProExecute(HookEvent $event) {
-		/** @var ProcessPageListerPro $pplp */
-		$pplp = $event->object;
-		// Return early if AJAX
-		if($this->wire()->config->ajax) return;
-		// Remove actions_limit from selector so InputfieldSelector doesn't try to include it
-		$selector_str = $pplp->sessionGet('selector');
-		$selectors = new Selectors($selector_str);
-		$s_actions_limit = $selectors->get("field=actions_limit");
-		if($s_actions_limit) $selectors->remove($s_actions_limit);
-		$pplp->sessionSet('selector', (string) $selectors);
-	}
-
-	/**
-	 * After InputfieldSelector::render
-	 *
-	 * @param HookEvent $event
-	 */
-	protected function afterInputfieldSelectorRender(HookEvent $event) {
-		if($this->wire()->process != 'ProcessPageListerPro') return;
-		/** @var InputfieldSelector $inputfield */
-		$inputfield = $event->object;
-		if($inputfield->name !== 'filters') return;
-		// Add action limit input
-		$event->return .= <<<EOT
-<div class="lpal-wrap">
-	<label id="lpal-action-limit-label" for="lpal-action-limit" class="collapsed">Action limit...</label>
-	<input type="number" min="0" id="lpal-action-limit" class="uk-input no-auto-change">
-</div>
-EOT;
-	}
-
-	/**
-	 * After ProcessPageLister::getSelector
-	 *
-	 * @param HookEvent $event
-	 */
-	protected function afterGetSelector(HookEvent $event) {
-		/** @var ProcessPageListerPro $lister */
-		$lister = $event->object;
-		$selector_str = $event->return;
-		$selectors = new Selectors($selector_str);
-		// Get limit selector (should always be present but not 100% reliable)
-		$s_limit = $selectors->get("field=limit");
-		if(!$s_limit) {
-			$s_limit = new SelectorEqual('limit', 25);
-			$selectors->add($s_limit);
-		};
-		// Get actions_limit selector
-		$s_actions_limit = $selectors->get("field=actions_limit");
-		if(!$s_actions_limit || !ctype_digit($s_actions_limit->value)) return;
-		// Set limit from actions_limit selector value
-		$s_limit->value = (int) $s_actions_limit->value;
-		// Convert actions_limit selector into "get_total=0"
-		$s_actions_limit->field = 'get_total';
-		$s_actions_limit->value = 0;
-		// Force total to update
-		$lister->cacheTotal = false;
-		// Return the modified selector
-		$event->return = (string) $selectors;
-	}
-
-	/**
-	 * After ProcessController::execute
-	 * Add assets late - deliberately after InputfieldSelector.js
-	 *
-	 * @param HookEvent $event
-	 */
-	protected function addLateAssets(HookEvent $event) {
-		if($this->wire()->process != 'ProcessPageListerPro') return;
 		$config = $this->wire()->config;
 		$info = $this->getModuleInfo();
 		$version = $info['version'];
 		$config->styles->add($config->urls->{$this} . "{$this}.css?v={$version}");
 		$config->scripts->add($config->urls->{$this} . "{$this}.js?v={$version}");
+	}
+
+	/**
+	 * After ListerProActions::buildActionsForm
+	 * Add action limit input
+	 *
+	 * @param HookEvent $event
+	 */
+	protected function afterBuildActionsForm(HookEvent $event) {
+		/** @var InputfieldForm $form */
+		$form = $event->return;
+		$modules = $this->wire()->modules;
+		
+		/** @var InputfieldInteger $f */
+		$f = $modules->get('InputfieldInteger');
+		$f->name = 'action_limit';
+		$f->id = 'lpal-action-limit';
+		$f->label = 'Action limit';
+		$f->inputType = 'number';
+		$form->add($f);
 	}
 
 }
