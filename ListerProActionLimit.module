@@ -9,7 +9,7 @@ class ListerProActionLimit extends WireData implements Module {
 		return array(
 			'title' => 'Lister Pro Action Limit',
 			'summary' => 'Allows a numerical limit to be set for how many pages within Lister Pro results will have an action applied to them.',
-			'version' => '0.1.2',
+			'version' => '0.1.3',
 			'author' => 'Robin Sallis',
 			'href' => 'https://github.com/Toutouwai/ListerProActionLimit',
 			'icon' => 'compress',
@@ -24,10 +24,8 @@ class ListerProActionLimit extends WireData implements Module {
 	public function init() {
 		// For Lister Pro
 		$this->addHookMethod('ProcessPageListerPro::executeActionLimitIds', $this, 'executeActionLimitIds');
-		$this->addHookBefore('ProcessPageListerPro::executeActions', $this, 'beforeExecuteActions');
 		// For Lister Selector
 		$this->addHookMethod('ProcessListerSelector::executeActionLimitIds', $this, 'executeActionLimitIds');
-		$this->addHookBefore('ProcessListerSelector::executeActions', $this, 'beforeExecuteActions');
 	}
 
 	/**
@@ -87,26 +85,6 @@ class ListerProActionLimit extends WireData implements Module {
 	}
 
 	/**
-	 * Before ProcessPageListerPro|ProcessListerSelector::executeActions
-	 * Set action_items in POST
-	 *
-	 * @param HookEvent $event
-	 */
-	protected function beforeExecuteActions(HookEvent $event) {
-		/** @var ProcessPageListerPro $lister */
-		if($event->object == 'ProcessListerSelector') {
-			$lister = $event->object->lister;
-		} else {
-			$lister = $event->object;
-		}
-		$input = $this->wire()->input;
-		$action_limit = $input->post->int('action_limit');
-		$ids = $this->getActionLimitIds($lister, $action_limit);
-		// Set the IDs in CSV format to actions_items in POST (as if they had been individually selected)
-		if($ids) $input->post->actions_items = implode(',', $ids);
-	}
-
-	/**
 	 * Before ProcessPageListerPro::execute
 	 * Add CSS and JS
 	 *
@@ -116,7 +94,6 @@ class ListerProActionLimit extends WireData implements Module {
 		$config = $this->wire()->config;
 		$info = $this->getModuleInfo();
 		$version = $info['version'];
-		$config->styles->add($config->urls->{$this} . "{$this}.css?v={$version}");
 		$config->scripts->add($config->urls->{$this} . "{$this}.js?v={$version}");
 	}
 
@@ -130,14 +107,17 @@ class ListerProActionLimit extends WireData implements Module {
 		/** @var InputfieldForm $form */
 		$form = $event->return;
 		$modules = $this->wire()->modules;
-		
+		$f_actions_items = $form->getChildByName('actions_items');
+		if(!$f_actions_items) return;
+
 		/** @var InputfieldInteger $f */
 		$f = $modules->get('InputfieldInteger');
 		$f->name = 'action_limit';
 		$f->id = 'lpal-action-limit';
-		$f->label = 'Action limit';
+		$f->label = $this->_('Action limit');
+		$f->description = $this->_('Limit the selected action(s) to the first n items in the Lister results.');
 		$f->inputType = 'number';
-		$form->add($f);
+		$form->insertBefore($f, $f_actions_items);
 	}
 
 }

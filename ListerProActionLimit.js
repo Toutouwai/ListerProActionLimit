@@ -9,19 +9,35 @@
 			// Get IDs of pages within the action limit
 			$.getJSON('./action-limit-ids/?action_limit=' + action_limit, function(data) {
 				var count = data.length;
-				// Set selected count
+				// Set selected
 				var $open_count = $('#lister_open_cnt');
+				$open_count.find('span').html(count);
+				$('#lister_open_cnt2').html(count + '&nbsp;');
 				if(count) {
-					$open_count.find('span').text(count);
 					$open_count.show();
+					$('#wrap_actions_items').removeClass('InputfieldStateCollapsed');
+					$('#actions_items_all').removeAttr('checked');
+					$('#actions_items_open')
+						.removeAttr('disabled')
+						.attr('checked', 'checked')
+						.val(data.join(','))
+						.parent('label')
+						.removeClass('ui-state-disabled');
 				} else {
 					$open_count.hide();
+					$('#actions_items_all').attr('checked', 'checked');
+					$('#actions_items_open')
+						.removeAttr('checked')
+						.attr('disabled', 'disabled')
+						.val('')
+						.parent('label')
+						.addClass('ui-state-disabled');
 				}
 				// Remove existing highlights
-				$('.lpal-selected').removeClass('lpal-selected');
+				$('tr.open').removeClass('open');
 				$.each(data, function(i, item) {
 					// Highlight rows
-					$('#ProcessListerTable').find('tr[data-pid="' + item + '"]').addClass('lpal-selected');
+					$('#ProcessListerTable').find('tr[data-pid="' + item + '"]').addClass('open');
 				});
 			});
 		}
