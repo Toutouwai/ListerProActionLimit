@@ -9,7 +9,7 @@ class ListerProActionLimit extends WireData implements Module {
 		return array(
 			'title' => 'Lister Pro Action Limit',
 			'summary' => 'Allows a numerical limit to be set for how many pages within Lister Pro results will have an action applied to them.',
-			'version' => '0.1.3',
+			'version' => '0.1.4',
 			'author' => 'Robin Sallis',
 			'href' => 'https://github.com/Toutouwai/ListerProActionLimit',
 			'icon' => 'compress',
@@ -106,6 +106,8 @@ class ListerProActionLimit extends WireData implements Module {
 	protected function afterBuildActionsForm(HookEvent $event) {
 		/** @var InputfieldForm $form */
 		$form = $event->return;
+		// Return early if no form (i.e. user is not allowed to execute any actions)
+		if(!$form) return;
 		$modules = $this->wire()->modules;
 		$f_actions_items = $form->getChildByName('actions_items');
 		if(!$f_actions_items) return;
